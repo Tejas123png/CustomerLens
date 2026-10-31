@@ -3,11 +3,21 @@
  * Handles base URL configuration, headers, error parsing, and timeouts.
  */
 
-// In production (Vercel deployment), use same-origin relative '/api' unless VITE_API_URL is explicitly set.
-// In local development, direct to 'http://127.0.0.1:8000/api' (or proxy via Vite).
-const API_BASE_URL =
-  import.meta.env.VITE_API_URL ||
-  (import.meta.env.PROD ? '/api' : 'http://127.0.0.1:8000/api');
+function getApiBaseUrl() {
+  if (import.meta.env.VITE_API_URL) {
+    return import.meta.env.VITE_API_URL;
+  }
+  // When running in a browser on port 3000 (e.g. Docker container serving built assets),
+  // route API requests directly to the backend running on port 8000.
+  if (typeof window !== 'undefined' && window.location.port === '3000') {
+    return `${window.location.protocol}//${window.location.hostname}:8000/api`;
+  }
+  // In production (e.g. Vercel deployment), use same-origin relative '/api'.
+  // In local Vite dev server, proxy via Vite or direct to port 8000.
+  return import.meta.env.PROD ? '/api' : 'http://127.0.0.1:8000/api';
+}
+
+const API_BASE_URL = getApiBaseUrl();
 
 /**
  * Format Pydantic validation errors or standard HTTP errors into readable messages.
@@ -97,6 +107,13 @@ export async function apiRequest(endpoint, options = {}) {
     if (!response.ok) {
       const error = new Error(parseErrorMessage(response.status, data));
       error.status = response.status;
+      error.data = data;
+      throw error;
+    }
+
+    if (!isJson && typeof data === 'string' && data.trim().startsWith('<')) {
+      const error = new Error(`Expected JSON response from API, but received HTML from ${url}. Ensure the backend server is reachable on port 8000.`);
+      error.status = 502;
       error.data = data;
       throw error;
     }
